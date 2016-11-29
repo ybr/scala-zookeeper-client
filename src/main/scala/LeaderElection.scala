@@ -1,6 +1,6 @@
 package com.github.ybr.zkclient
 
-import akka.stream.scaladsl.Sink
+import akka.stream.scaladsl.{Flow, Sink}
 
 import java.util.UUID
 
@@ -39,45 +39,63 @@ object LeaderElection {
 }
 
 case class ElectionRoom(path: String, acl: List[ACL]) {
-  val volunteerId = "(.+)_([0-9]+)".r
-
   def beVolunteer(uuid: UUID)(implicit ec: ExecutionContext, zk: ZooKeeperClient): Future[Unit] = {
     println(s"Volunteer ${uuid} for ${path}")
     for {
-    _ <- zk.create[Nothing](s"${path}/${uuid}_", Array.empty, acl, CreateMode.EPHEMERAL_SEQUENTIAL, None)
-    _ <- zk.getChildren[Nothing](path, None).flatMap { childrenResponse =>
-      println(childrenResponse)
-        val volunteers = childrenResponse.children.map {
-          case volunteerId(volunteerUUID, volunteerSeqId) => (UUID.fromString(volunteerUUID), volunteerSeqId)
-        }.sortBy(_._2)
-
-        val maybeLeader = whoIsTheLeader(uuid, volunteers)
-        println(s"Leader is ${maybeLeader}")
-
-        val elected = maybeLeader.map(_._1 == uuid).getOrElse(false)
-
-        if(elected) Future.successful(())
-        else {
-          precedingVolunteer(uuid, volunteers) match {
-            case Some((precedingVolunteerUUID, precedingVolunteerSeqId)) =>
-              zk.watchExists[Nothing](s"${path}/${precedingVolunteerUUID}_${precedingVolunteerSeqId}", None)
-                .flatMap { case (existResponse, existWatchStream) =>
-                  if(KeeperException.Code.OK == existResponse.rc) {
-                    println("Not leader waiting my turn")
-                    import akka.stream.scaladsl.Flow
-                    existWatchStream.via(Flow[(StatResponse[Nothing], WatchedEvent)].take(1)).runWith(Sink.head)
-                  }
-                  else {
-                    Future.failed(new RuntimeException("No preceding volunteer"))
-                  }
-                }
-            case None =>
-              println("Not leader and no preceding volunteer => be volunter")
-              beVolunteer(uuid)
-          }
-        }
-      }
+      _ <- candidate(uuid)
+      volunteers <- retrieveVolunteers()
+      _ <- elect(uuid, volunteers)
     } yield ()
+  }
+
+  def elect(uuid: UUID, volunteers: List[(UUID, String)])(implicit ec: ExecutionContext, zk: ZooKeeperClient): Future[Unit] = {
+    val maybeLeader = whoIsTheLeader(uuid, volunteers)
+    println(s"Leader is ${maybeLeader}")
+
+    val elected = maybeLeader.map(_._1 == uuid).getOrElse(false)
+
+    if(elected) {
+      println(s"Elected ${uuid}")
+      Future.successful(())
+    }
+    else {
+      println(s"Not elected ${uuid}, waiting my turn...")
+      precedingVolunteer(uuid, volunteers) match {
+        case Some((precedingVolunteerUUID, precedingVolunteerSeqId)) =>
+          val precedingZNode = s"${path}/${precedingVolunteerUUID}_${precedingVolunteerSeqId}"
+          println(s"Waiting for ${precedingZNode} to be ejected...")
+          zk.watchExists[Nothing](precedingZNode, None).flatMap { case (existResponse, existWatchStream) =>
+            if(KeeperException.Code.OK == existResponse.rc) {
+              existWatchStream.via(Flow[(StatResponse[Nothing], WatchedEvent)].take(1)).runWith(Sink.head).flatMap { case (response, event) =>
+                println("may become leader " + response + " " + event)
+                for {
+                  volunteers <- retrieveVolunteers()
+                  _ <- elect(uuid, volunteers)
+                } yield ()
+              }
+            }
+            else {
+              Future.failed(new RuntimeException("No preceding volunteer"))
+            }
+          }
+        case None =>
+          println("Not leader and no preceding volunteer => be volunter")
+          beVolunteer(uuid)
+      }
+    }
+  }
+
+  def candidate(uuid: UUID)(implicit ec: ExecutionContext, zk: ZooKeeperClient): Future[Unit] = {
+    println(s"Canidate ${uuid} for ${path}")
+    zk.create[Nothing](s"${path}/${uuid}_", Array.empty, acl, CreateMode.EPHEMERAL_SEQUENTIAL, None).map(_ => ())
+  }
+
+  val volunteerId = "(.+)_([0-9]+)".r
+
+  def retrieveVolunteers()(implicit ec: ExecutionContext, zk: ZooKeeperClient): Future[List[(UUID, String)]] = zk.getChildren[Nothing](path, None).map { childrenResponse =>
+    childrenResponse.children.map {
+      case volunteerId(volunteerUUID, volunteerSeqId) => (UUID.fromString(volunteerUUID), volunteerSeqId)
+    }.sortBy(_._2)
   }
 
   private def whoIsTheLeader(uuid: UUID, volunteers: List[(UUID, String)]): Option[(UUID, String)] = volunteers.headOption

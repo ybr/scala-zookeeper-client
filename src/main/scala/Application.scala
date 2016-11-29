@@ -16,7 +16,7 @@ object Application {
       for {
         room <- LeaderElection.createRoom("/ica/counters")
         elected <- room.beVolunteer(myUUID)
-      } yield println(s"Elected ${myUUID}"),
+      } yield (),
       Duration.Inf
     )
 
