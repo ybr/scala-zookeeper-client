@@ -1,0 +1,13 @@
+language: scala
+scala:
+  - 2.11.8
+jdk:
+  - openjdk7
+  - openjdk8
+script:
+  - sbt test doc publish
+services: []
+
+notifications:
+  email:
+    - yohann.bredoux@gmail.com
