@@ -57,7 +57,7 @@ object ElectionRoom {
 
 class ElectionRoom(val path: String, val acl: List[ACL]) {
   def beVolunteer(uuid: UUID)(implicit zk: ZooKeeperClient, ec: ExecutionContext, mat: Materializer): Future[Unit] = {
-    ElectionRoom.log.debug(s"I am volunteer ${uuid} in ${path}")
+    ElectionRoom.log.trace(s"I am volunteer ${uuid} in ${path}")
     for {
       _ <- candidate(uuid)
       volunteers <- retrieveVolunteers()
@@ -67,24 +67,24 @@ class ElectionRoom(val path: String, val acl: List[ACL]) {
 
   private def elect(uuid: UUID, volunteers: List[(UUID, String)])(implicit zk: ZooKeeperClient, ec: ExecutionContext, mat: Materializer): Future[Unit] = {
     val maybeLeader = whoIsTheLeader(uuid, volunteers)
-    ElectionRoom.log.debug(s"Leader is ${maybeLeader.map(_._1).getOrElse("unknown")} in ${path}")
+    ElectionRoom.log.trace(s"Leader is ${maybeLeader.map(_._1).getOrElse("unknown")} in ${path}")
 
     val elected = maybeLeader.map(_._1 == uuid).getOrElse(false)
 
     if(elected) {
-      ElectionRoom.log.debug(s"Elected ${uuid}")
+      ElectionRoom.log.trace(s"Elected ${uuid}")
       Future.successful(())
     }
     else {
-      ElectionRoom.log.debug(s"Not elected ${uuid}, waiting my turn...")
+      ElectionRoom.log.trace(s"Not elected ${uuid}, waiting my turn...")
       precedingVolunteer(uuid, volunteers) match {
         case Some((precedingVolunteerUUID, precedingVolunteerSeqId)) =>
           val precedingZNode = s"${path}/${precedingVolunteerUUID}_${precedingVolunteerSeqId}"
-          ElectionRoom.log.debug(s"Waiting for ${precedingVolunteerUUID} in ${path} to be ejected...")
+          ElectionRoom.log.trace(s"Waiting for ${precedingVolunteerUUID} in ${path} to be ejected...")
           zk.watchExists[Nothing](precedingZNode, None).flatMap { case (existResponse, existWatchStream) =>
             if(KeeperException.Code.OK == existResponse.rc) {
               existWatchStream.runWith(Sink.head).flatMap { case (response, event) =>
-                ElectionRoom.log.debug("May become leader, replay election")
+                ElectionRoom.log.trace("May become leader, replay election")
                 for {
                   volunteers <- retrieveVolunteers()
                   _ <- elect(uuid, volunteers)
@@ -96,14 +96,14 @@ class ElectionRoom(val path: String, val acl: List[ACL]) {
             }
           }
         case None =>
-          ElectionRoom.log.debug("Not leader and no preceding volunteer => be volunter")
+          ElectionRoom.log.trace("Not leader and no preceding volunteer => be volunter")
           beVolunteer(uuid)
       }
     }
   }
 
   private def candidate(uuid: UUID)(implicit zk: ZooKeeperClient, ec: ExecutionContext): Future[Unit] = {
-    ElectionRoom.log.debug(s"Candidate ${uuid} in ${path}")
+    ElectionRoom.log.trace(s"Candidate ${uuid} in ${path}")
     zk.create[Nothing](s"${path}/${uuid}_", Array.empty, acl, CreateMode.EPHEMERAL_SEQUENTIAL, None).map(_ => ())
   }
 
