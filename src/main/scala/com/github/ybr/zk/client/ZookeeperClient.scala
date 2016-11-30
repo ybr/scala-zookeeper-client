@@ -1,6 +1,7 @@
-package com.github.ybr.zkclient
+package com.github.ybr.zk.client
 
 import akka.NotUsed
+import akka.stream.Materializer
 import akka.stream.scaladsl.Source
 
 import org.apache.zookeeper._
@@ -32,7 +33,7 @@ trait ZooKeeperClient {
 }
 
 object ZooKeeperClient {
-  def native(hosts: String, sessionTimeout: Int, canBeReadOnly: Boolean, watcher: Option[Watcher] = None) = {
+  def native(hosts: String, sessionTimeout: Int, canBeReadOnly: Boolean, watcher: Option[Watcher] = None)(implicit mat: Materializer) = {
     val zk = new ZooKeeper(hosts, sessionTimeout, watcher.getOrElse(null), canBeReadOnly)
     new NativeZookeeperClient(zk)
   }

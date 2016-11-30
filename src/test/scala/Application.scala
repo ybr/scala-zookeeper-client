@@ -1,4 +1,7 @@
-import com.github.ybr.zkclient._
+import com.github.ybr.zk.client._
+import com.github.ybr.zk.recipes._
+
+import akka.actor.ActorSystem
 
 import java.util.UUID
 
@@ -9,6 +12,7 @@ import scala.language.postfixOps
 
 object Application {
   def main(args: Array[String]): Unit = {
+    implicit val system: ActorSystem = ActorSystem.create("myApp")
     implicit val zk = ZooKeeperClient.native("127.0.0.1:2181", 3000, true)
 
     val myUUID = UUID.randomUUID()
@@ -24,6 +28,6 @@ object Application {
 
     zk.close()
 
-    com.github.ybr.zkclient.defaultActorSystem.terminate()
+    val terminated = Await.result(system.terminate(), 10 seconds)
   }
 }

@@ -1,6 +1,7 @@
-package com.github.ybr.zkclient
+package com.github.ybr.zk.client
 
 import akka.NotUsed
+import akka.stream.Materializer
 import akka.stream.scaladsl.{Sink, Source}
 
 import org.apache.zookeeper._
@@ -10,7 +11,7 @@ import scala.concurrent._
 import scala.collection.JavaConverters._
 import scala.language.higherKinds
 
-class NativeZookeeperClient(val zk: ZooKeeper) extends ZooKeeperClient {
+class NativeZookeeperClient(val zk: ZooKeeper)(implicit mat: Materializer) extends ZooKeeperClient {
 
   def close() { zk.close() }
 
